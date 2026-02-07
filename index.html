@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Omega Mobile Signet - CooSpo Bridge</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body { background-color: #000; color: #cbd5e1; font-family: monospace; }
+        .glow-purple { box-shadow: 0 0 20px rgba(188, 19, 254, 0.4); }
+        .bpm-animate { animation: heart-beat 1s infinite; }
+        @keyframes heart-beat { 0% { transform: scale(1); } 50% { transform: scale(1.1); } 100% { transform: scale(1); } }
+    </style>
+</head>
+<body class="flex flex-col min-h-screen p-6">
+
+    <header class="flex justify-between items-center mb-10">
+        <div>
+            <h1 class="text-xl font-black text-white italic">OMEGA<span class="text-[#BC13FE]">SIGNET</span></h1>
+            <p class="text-[8px] text-slate-600 uppercase tracking-widest">Mobile Biometric Bridge v12.7</p>
+        </div>
+        <div id="conn-status" class="w-3 h-3 rounded-full bg-red-600 shadow-[0_0_10px_red]"></div>
+    </header>
+
+    <main class="flex-1 flex flex-col items-center justify-center gap-12">
+        <!-- MONITOR DE PULSO -->
+        <div id="bpm-display" class="relative flex items-center justify-center w-48 h-48 border-2 border-slate-900 rounded-full transition-all duration-500">
+            <div id="heart-icon" class="absolute text-slate-800 opacity-20">
+                <svg width="120" height="120" fill="currentColor" viewBox="0 0 24 24"><path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/></svg>
+            </div>
+            <div class="text-center z-10">
+                <div id="bpm-val" class="text-6xl font-black text-white italic">--</div>
+                <div class="text-[10px] text-purple-500 font-bold uppercase tracking-widest mt-1">BPM</div>
+            </div>
+        </div>
+
+        <!-- BOTÓN DE CONEXIÓN BLUETOOTH -->
+        <button id="btn-connect" class="w-full py-5 bg-[#BC13FE] text-white font-black rounded-3xl glow-purple hover:scale-95 transition-all uppercase text-xs">
+            Vincular CooSpo H808S
+        </button>
+
+        <div class="w-full grid grid-cols-2 gap-4">
+            <div class="bg-slate-900/40 p-4 rounded-2xl border border-slate-800 text-center">
+                <div class="text-[8px] text-slate-500 uppercase font-bold mb-1">Malla Coherencia</div>
+                <div id="coh-val" class="text-lg font-black text-cyan-400">0.0%</div>
+            </div>
+            <div class="bg-slate-900/40 p-4 rounded-2xl border border-slate-800 text-center">
+                <div class="text-[8px] text-slate-500 uppercase font-bold mb-1">Estatus VPS</div>
+                <div id="vps-status" class="text-lg font-black text-slate-600 font-mono">OFFLINE</div>
+            </div>
+        </div>
+    </main>
+
+    <footer class="mt-8 space-y-4">
+        <button id="btn-flight" class="w-full py-4 bg-slate-900 border border-slate-800 text-slate-500 font-bold rounded-2xl text-[10px] uppercase">
+            Iniciar Simulación en VPS
+        </button>
+        <p class="text-[8px] text-slate-700 text-center uppercase tracking-tighter">
+            Este dispositivo actúa como Gateway de Biocampo hacia el VPS
+        </p>
+    </footer>
+
+    <script>
+        let device, server, characteristic;
+        const VPS_URL = "http://TU_IP_VPS:8000"; // CAMBIAR ESTO
+
+        const btnConnect = document.getElementById('btn-connect');
+        const btnFlight = document.getElementById('btn-flight');
+        const bpmVal = document.getElementById('bpm-val');
+        const cohVal = document.getElementById('coh-val');
+        const vpsStatus = document.getElementById('vps-status');
+        const connStatus = document.getElementById('conn-status');
+        const heartIcon = document.getElementById('heart-icon');
+
+        btnConnect.onclick = async () => {
+            try {
+                device = await navigator.bluetooth.requestDevice({
+                    filters: [{ services: ['heart_rate'] }]
+                });
+                
+                server = await device.gatt.connect();
+                const service = await server.getPrimaryService('heart_rate');
+                characteristic = await service.getCharacteristic('heart_rate_measurement');
+
+                await characteristic.startNotifications();
+                characteristic.addEventListener('characteristicvaluechanged', handleBPM);
+                
+                btnConnect.innerText = "SENSOR VINCULADO";
+                btnConnect.classList.replace('bg-[#BC13FE]', 'bg-green-600');
+                connStatus.classList.replace('bg-red-600', 'bg-green-500');
+                connStatus.style.boxShadow = "0 0 10px #22c55e";
+                
+                vpsStatus.innerText = "CONNECTING...";
+            } catch (e) {
+                alert("Error de conexión: " + e);
+            }
+        };
+
+        function handleBPM(event) {
+            const value = event.target.value;
+            const bpm = value.getUint8(1);
+            bpmVal.innerText = bpm;
+            heartIcon.classList.add('bpm-animate');
+            heartIcon.classList.replace('text-slate-800', 'text-red-600');
+            heartIcon.style.opacity = "0.5";
+
+            // Cálculo de Coherencia Simulado para el móvil
+            const coherence = Math.min(100, (100 - Math.abs(bpm - 70))).toFixed(1);
+            cohVal.innerText = coherence + "%";
+
+            // Enviar al VPS
+            fetch(`${VPS_URL}/biometric_update`, {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ bpm: bpm, coherence: parseFloat(coherence) })
+            }).then(() => {
+                vpsStatus.innerText = "LINK OK";
+                vpsStatus.classList.add('text-green-400');
+            }).catch(() => {
+                vpsStatus.innerText = "VPS_ERROR";
+                vpsStatus.classList.add('text-red-500');
+            });
+        }
+
+        btnFlight.onclick = () => {
+            fetch(`${VPS_URL}/toggle_flight`, { method: 'POST' });
+        };
+    </script>
+</body>
+</html>
